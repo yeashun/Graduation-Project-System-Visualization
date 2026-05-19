@@ -21,6 +21,8 @@ class Controller:
         password = self.login.password.text().strip()
 
         if username == "yeshun" and password == "2022001469":
+            self.login.mark_login_pending()
+            QApplication.processEvents()
             self.login.save_preferences()
             self.main_gui = QuantumViTGUI()
             self.main_gui.showMaximized()

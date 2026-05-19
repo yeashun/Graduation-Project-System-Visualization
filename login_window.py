@@ -43,6 +43,7 @@ class LoginWindow(QWidget):
         self.resize(1180, 720)
 
         self.background_pixmap = self._load_background()
+        self.university_logo_pixmap = self._load_university_logo()
         self._scaled_background = QPixmap()
         self._phase = 0.0
 
@@ -74,10 +75,21 @@ class LoginWindow(QWidget):
         brand_layout.setContentsMargins(0, 0, 0, 0)
         brand_layout.setSpacing(14)
 
-        logo = QLabel("YU")
+        logo = QLabel()
         logo.setObjectName("universityLogo")
         logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedSize(58, 58)
+        logo.setFixedSize(168, 64)
+        if self.university_logo_pixmap.isNull():
+            logo.setText("YU")
+        else:
+            logo.setPixmap(
+                self.university_logo_pixmap.scaled(
+                    154,
+                    54,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
         brand_layout.addWidget(logo)
 
         brand_text = QFrame()
@@ -173,6 +185,11 @@ class LoginWindow(QWidget):
         hint.setWordWrap(True)
         right_layout.addWidget(hint)
 
+        self.login_status_label = QLabel("系统状态：等待登录")
+        self.login_status_label.setObjectName("loginStatus")
+        self.login_status_label.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(self.login_status_label)
+
         right_layout.addSpacing(12)
 
         username_block, self.username = self._make_input_block("账号", "请输入用户名", "ID")
@@ -239,6 +256,10 @@ class LoginWindow(QWidget):
             if not pixmap.isNull():
                 return pixmap
         return QPixmap()
+
+    def _load_university_logo(self):
+        pixmap = QPixmap(str(BASE_DIR / "长江大学校徽.png"))
+        return pixmap if not pixmap.isNull() else QPixmap()
 
     def _make_stat(self, value, label):
         item = QFrame()
@@ -335,9 +356,9 @@ class LoginWindow(QWidget):
             }
             QLabel#universityLogo {
                 color: #eaf5ff;
-                background-color: rgba(255, 255, 255, 0.10);
-                border: 1px solid rgba(185, 221, 255, 0.42);
-                border-radius: 29px;
+                background-color: rgba(255, 255, 255, 0.92);
+                border: 1px solid rgba(210, 230, 255, 0.72);
+                border-radius: 18px;
                 font-size: 15px;
                 font-weight: 800;
                 letter-spacing: 1px;
@@ -427,6 +448,15 @@ class LoginWindow(QWidget):
                 color: #7487a1;
                 font-size: 14px;
                 line-height: 1.55;
+            }
+            QLabel#loginStatus {
+                color: #2f75f6;
+                background-color: rgba(73, 128, 238, 0.08);
+                border: 1px solid rgba(73, 128, 238, 0.14);
+                border-radius: 12px;
+                padding: 8px 10px;
+                font-size: 12px;
+                font-weight: 800;
             }
             QLabel#inputLabel {
                 color: #36516f;
@@ -563,11 +593,20 @@ class LoginWindow(QWidget):
     def show_error(self, message):
         self.error_label.setText(message)
         self.error_label.setVisible(True)
+        self.login_status_label.setText("系统状态：登录校验未通过")
+        self.login_btn.setText("进入演示系统    >")
+        self.login_btn.setEnabled(True)
 
     def clear_error(self):
         if self.error_label.isVisible():
             self.error_label.clear()
             self.error_label.setVisible(False)
+        self.login_status_label.setText("系统状态：等待登录")
+
+    def mark_login_pending(self):
+        self.login_status_label.setText("系统状态：正在进入可视化演示系统...")
+        self.login_btn.setText("正在进入系统...")
+        self.login_btn.setEnabled(False)
 
     def resizeEvent(self, event):
         self._prepare_background()
@@ -580,7 +619,9 @@ class LoginWindow(QWidget):
         rect = self.rect()
         self._paint_base_gradient(painter, rect)
         self._paint_background_texture(painter)
+        self._paint_scanning_beams(painter, rect)
         self._paint_data_globe(painter, rect)
+        self._paint_floating_panels(painter, rect)
         self._paint_bottom_wave(painter, rect)
         painter.end()
 
@@ -595,7 +636,7 @@ class LoginWindow(QWidget):
         )
 
     def _advance_background(self):
-        self._phase = (self._phase + 0.035) % math.tau
+        self._phase = (self._phase + 0.045) % math.tau
         self.update()
 
     def _paint_base_gradient(self, painter, rect):
@@ -625,8 +666,33 @@ class LoginWindow(QWidget):
         if self._scaled_background.isNull():
             return
         painter.save()
-        painter.setOpacity(0.22)
+        painter.setOpacity(0.18 + 0.04 * (1 + math.sin(self._phase * 0.8)) / 2)
         painter.drawPixmap(0, 0, self._scaled_background)
+        painter.restore()
+
+    def _paint_scanning_beams(self, painter, rect):
+        painter.save()
+        width = rect.width()
+        height = rect.height()
+        sweep = (self._phase / math.tau) * (width + 420) - 260
+
+        beam = QLinearGradient(QPointF(sweep - 180, 0), QPointF(sweep + 180, height))
+        beam.setColorAt(0.00, QColor(80, 190, 255, 0))
+        beam.setColorAt(0.45, QColor(90, 210, 255, 32))
+        beam.setColorAt(0.52, QColor(255, 255, 255, 62))
+        beam.setColorAt(1.00, QColor(80, 190, 255, 0))
+        path = QPainterPath()
+        path.moveTo(sweep - 130, 0)
+        path.lineTo(sweep + 70, 0)
+        path.lineTo(sweep + 250, height)
+        path.lineTo(sweep + 40, height)
+        path.closeSubpath()
+        painter.fillPath(path, QBrush(beam))
+
+        painter.setPen(QPen(QColor(142, 220, 255, 38), 1))
+        for index in range(7):
+            y = height * (0.18 + index * 0.095) + math.sin(self._phase + index) * 10
+            painter.drawLine(QPointF(0, y), QPointF(width * 0.72, y + 18))
         painter.restore()
 
     def _paint_data_globe(self, painter, rect):
@@ -689,6 +755,25 @@ class LoginWindow(QWidget):
                 center.y() + math.sin(angle) * radius * 0.73,
             )
             painter.drawLine(center, point)
+
+    def _paint_floating_panels(self, painter, rect):
+        painter.save()
+        panels = [
+            (0.12, 0.18, 108, 30, "QPE"),
+            (0.28, 0.74, 132, 30, "QCSA"),
+            (0.50, 0.16, 138, 30, "HViT"),
+            (0.68, 0.72, 156, 30, "VISUAL"),
+        ]
+        for index, (x_ratio, y_ratio, width, height, text) in enumerate(panels):
+            x = rect.width() * x_ratio + math.sin(self._phase * 1.2 + index) * 9
+            y = rect.height() * y_ratio + math.cos(self._phase * 1.1 + index * 0.7) * 8
+            panel_rect = QRectF(x, y, width, height)
+            painter.setPen(QPen(QColor(145, 215, 255, 72), 1))
+            painter.setBrush(QColor(255, 255, 255, 18))
+            painter.drawRoundedRect(panel_rect, 12, 12)
+            painter.setPen(QPen(QColor(226, 243, 255, 140), 1))
+            painter.drawText(panel_rect, Qt.AlignCenter, text)
+        painter.restore()
 
     def _paint_bottom_wave(self, painter, rect):
         painter.save()
