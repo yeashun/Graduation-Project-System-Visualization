@@ -26,6 +26,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QBoxLayout,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -359,8 +360,8 @@ class QuantumViTGUI(QMainWindow):
             | Qt.WindowMaximizeButtonHint
             | Qt.WindowCloseButtonHint
         )
-        self.setMinimumSize(1180, 720)
-        self.resize(1520, 940)
+        self.setMinimumSize(960, 620)
+        self.resize(1360, 860)
 
         self.nav_buttons = {}
         self.page_index = {}
@@ -388,6 +389,7 @@ class QuantumViTGUI(QMainWindow):
         self.populate_ablation_page()
         self.populate_visualization_page()
         self.switch_page("home")
+        self.update_responsive_layouts()
 
     def init_ui(self):
         root = QWidget()
@@ -396,7 +398,8 @@ class QuantumViTGUI(QMainWindow):
         root_layout.setSpacing(0)
         self.setCentralWidget(root)
 
-        root_layout.addWidget(self.build_sidebar())
+        self.sidebar = self.build_sidebar()
+        root_layout.addWidget(self.sidebar)
 
         self.stack = QStackedWidget()
         root_layout.addWidget(self.stack, 1)
@@ -415,7 +418,9 @@ class QuantumViTGUI(QMainWindow):
     def build_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(300)
+        sidebar.setMinimumWidth(220)
+        sidebar.setMaximumWidth(300)
+        sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -427,24 +432,37 @@ class QuantumViTGUI(QMainWindow):
         brand_layout.setContentsMargins(0, 0, 0, 0)
         brand_layout.setSpacing(10)
 
-        badge = QLabel("DEFENSE MODE")
-        badge.setObjectName("sideBadge")
-        brand_layout.addWidget(badge, 0, Qt.AlignLeft)
+        self.sidebar_badge = QLabel("DEFENSE MODE")
+        self.sidebar_badge.setObjectName("sideBadge")
+        brand_layout.addWidget(self.sidebar_badge, 0, Qt.AlignLeft)
 
-        logo = QLabel("Q")
-        logo.setObjectName("brandLogo")
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedSize(52, 52)
-        brand_layout.addWidget(logo, 0, Qt.AlignLeft)
+        brand_header = QHBoxLayout()
+        brand_header.setContentsMargins(0, 0, 0, 0)
+        brand_header.setSpacing(12)
 
-        title = QLabel("QPE-HViT")
-        title.setObjectName("brandTitle")
-        brand_layout.addWidget(title)
+        self.brand_logo = QLabel("Q")
+        self.brand_logo.setObjectName("brandLogo")
+        self.brand_logo.setAlignment(Qt.AlignCenter)
+        self.brand_logo.setFixedSize(52, 52)
+        brand_header.addWidget(self.brand_logo, 0, Qt.AlignTop)
+
+        brand_text = QFrame()
+        brand_text.setObjectName("brandTextBlock")
+        brand_text_layout = QVBoxLayout(brand_text)
+        brand_text_layout.setContentsMargins(0, 0, 0, 0)
+        brand_text_layout.setSpacing(4)
+
+        self.brand_title = QLabel("QPE-HViT")
+        self.brand_title.setObjectName("brandTitle")
+        self.brand_title.setWordWrap(True)
+        brand_text_layout.addWidget(self.brand_title)
+        brand_header.addWidget(brand_text, 1)
+        brand_layout.addLayout(brand_header)
 
         subtitle = QLabel("本科毕业设计可视化演示系统")
         subtitle.setObjectName("brandSubtitle")
         subtitle.setWordWrap(True)
-        brand_layout.addWidget(subtitle)
+        brand_text_layout.addWidget(subtitle)
 
         layout.addWidget(brand_block)
 
@@ -513,6 +531,45 @@ class QuantumViTGUI(QMainWindow):
         }
         self.statusBar().showMessage(f"当前页面：{names[key]}")
 
+    def resizeEvent(self, event):
+        self.update_responsive_layouts()
+        super().resizeEvent(event)
+
+    def update_responsive_layouts(self):
+        window_width = self.width()
+
+        if hasattr(self, "sidebar"):
+            if window_width < 1260:
+                sidebar_width = 240
+            elif window_width < 1460:
+                sidebar_width = 268
+            else:
+                sidebar_width = 300
+            self.sidebar.setFixedWidth(sidebar_width)
+            if hasattr(self, "brand_logo"):
+                logo_size = 46 if sidebar_width < 260 else 52
+                self.brand_logo.setFixedSize(logo_size, logo_size)
+
+        compact_body = window_width < 1380
+        compact_preview = window_width < 1220
+
+        if hasattr(self, "gesture_body_layout"):
+            self.gesture_body_layout.setDirection(
+                QBoxLayout.TopToBottom if compact_body else QBoxLayout.LeftToRight
+            )
+
+        if hasattr(self, "gesture_preview_layout"):
+            self.gesture_preview_layout.setDirection(
+                QBoxLayout.TopToBottom if compact_preview else QBoxLayout.LeftToRight
+            )
+
+        if hasattr(self, "gesture_result_panel"):
+            self.gesture_result_panel.setMaximumWidth(16777215 if compact_body else 390)
+            self.gesture_result_panel.setSizePolicy(
+                QSizePolicy.Expanding if compact_body else QSizePolicy.Preferred,
+                QSizePolicy.Preferred,
+            )
+
     def build_scroll_page(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -541,6 +598,7 @@ class QuantumViTGUI(QMainWindow):
 
         hero_kicker = QLabel("QPE-HVIT VISUAL SYSTEM")
         hero_kicker.setObjectName("homeHeroKicker")
+        hero_kicker.setAlignment(Qt.AlignCenter)
         hero_text_layout.addWidget(hero_kicker)
 
         hero_title = QLabel(
@@ -550,6 +608,7 @@ class QuantumViTGUI(QMainWindow):
         hero_title.setObjectName("homeHeroTitle")
         hero_title.setTextFormat(Qt.RichText)
         hero_title.setWordWrap(True)
+        hero_title.setAlignment(Qt.AlignCenter)
         hero_text_layout.addWidget(hero_title)
 
         hero_subtitle = QLabel(
@@ -558,6 +617,7 @@ class QuantumViTGUI(QMainWindow):
         )
         hero_subtitle.setObjectName("homeHeroSubtitle")
         hero_subtitle.setWordWrap(True)
+        hero_subtitle.setAlignment(Qt.AlignCenter)
         hero_text_layout.addWidget(hero_subtitle)
 
         project_brief = QLabel(
@@ -566,15 +626,17 @@ class QuantumViTGUI(QMainWindow):
         )
         project_brief.setObjectName("homeProjectBrief")
         project_brief.setWordWrap(True)
+        project_brief.setAlignment(Qt.AlignCenter)
         hero_text_layout.addWidget(project_brief)
 
         hero_meta = QHBoxLayout()
         hero_meta.setSpacing(10)
+        hero_meta.addStretch()
         self.home_hero_meta_labels = []
         for _ in range(3):
             label = QLabel()
             label.setObjectName("heroMetaPill")
-            hero_meta.addWidget(label, 0, Qt.AlignLeft)
+            hero_meta.addWidget(label, 0, Qt.AlignCenter)
             self.home_hero_meta_labels.append(label)
         hero_meta.addStretch()
         hero_text_layout.addLayout(hero_meta)
@@ -621,6 +683,7 @@ class QuantumViTGUI(QMainWindow):
         hero_visual_note.setWordWrap(True)
         hero_visual_note.setAlignment(Qt.AlignRight)
         hero_visual_layout.addWidget(hero_visual_note, 0, Qt.AlignRight)
+        hero_visual.hide()
         hero_layout.addWidget(hero_visual, 0)
 
         layout.addLayout(hero_layout)
@@ -1074,9 +1137,11 @@ class QuantumViTGUI(QMainWindow):
         layout.addWidget(control_card)
 
         body_layout = QHBoxLayout()
+        self.gesture_body_layout = body_layout
         body_layout.setSpacing(18)
 
         left_col = QVBoxLayout()
+        self.visual_left_col = left_col
         left_col.setSpacing(16)
 
         summary_layout = QGridLayout()
@@ -1427,6 +1492,7 @@ class QuantumViTGUI(QMainWindow):
         left_col.setSpacing(16)
 
         compare_card = QFrame()
+        self.visual_compare_card = compare_card
         compare_card.setObjectName("visualCompareCard")
         compare_layout = QVBoxLayout(compare_card)
         compare_layout.setContentsMargins(22, 22, 22, 22)
@@ -1458,11 +1524,12 @@ class QuantumViTGUI(QMainWindow):
 
         self.visual_result_card = ImageCard("可视化结果", accent=True)
         self.visual_result_card.set_titled_frame_mode()
-        self.visual_result_card.image_label.setMinimumHeight(360)
+        self.visual_result_card.image_label.setMinimumHeight(420)
         self.visual_result_card.upload_button.setText("替换当前方法图片")
         self.visual_result_card.upload_button.clicked.connect(self.choose_visual_image)
         left_col.addWidget(self.visual_result_card)
         comparison_layout.addLayout(left_col, 5)
+        self.visual_compare_card.hide()
 
         insight_card = QFrame()
         insight_card.setObjectName("visualInsightCard")
@@ -1626,6 +1693,7 @@ class QuantumViTGUI(QMainWindow):
         camera_layout.setSpacing(12)
 
         preview_layout = QHBoxLayout()
+        self.gesture_preview_layout = preview_layout
         preview_layout.setSpacing(12)
 
         live_preview = QFrame()
@@ -1642,7 +1710,7 @@ class QuantumViTGUI(QMainWindow):
         self.gesture_camera_view.setObjectName("cameraViewport")
         self.gesture_camera_view.setAlignment(Qt.AlignCenter)
         self.gesture_camera_view.setFixedHeight(360)
-        self.gesture_camera_view.setMinimumWidth(560)
+        self.gesture_camera_view.setMinimumWidth(0)
         self.gesture_camera_view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         live_layout.addWidget(self.gesture_camera_view)
         preview_layout.addWidget(live_preview, 3)
@@ -1661,7 +1729,7 @@ class QuantumViTGUI(QMainWindow):
         self.gesture_model_input_view.setObjectName("binaryViewport")
         self.gesture_model_input_view.setAlignment(Qt.AlignCenter)
         self.gesture_model_input_view.setFixedHeight(360)
-        self.gesture_model_input_view.setMinimumWidth(260)
+        self.gesture_model_input_view.setMinimumWidth(0)
         self.gesture_model_input_view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         binary_layout.addWidget(self.gesture_model_input_view)
         preview_layout.addWidget(binary_preview, 1)
@@ -1719,9 +1787,11 @@ class QuantumViTGUI(QMainWindow):
         body_layout.addWidget(camera_panel, 3)
 
         result_panel = QFrame()
+        self.gesture_result_panel = result_panel
         result_panel.setObjectName("gestureResultPanel")
-        result_panel.setMinimumWidth(330)
+        result_panel.setMinimumWidth(260)
         result_panel.setMaximumWidth(390)
+        result_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         result_layout = QVBoxLayout(result_panel)
         result_layout.setContentsMargins(20, 20, 20, 20)
         result_layout.setSpacing(14)
@@ -2500,10 +2570,11 @@ class QuantumViTGUI(QMainWindow):
 
         data = VISUALIZATION_DATA[index]
         self.visual_method_desc.setText(data["description"])
-        self.visual_figure_label.setText(data.get("figure_label", ""))
+        self.visual_figure_label.setText("")
         self.visual_method_tag.setText(data["name"])
         self.visual_insight_label.setText(data.get("insight", ""))
         self.visual_result_caption_label.setText(data.get("result_caption", ""))
+        self.visual_compare_card.hide()
 
         self.visual_baseline_card.title_label.setText(data.get("baseline_title", "基础模型"))
         self.visual_baseline_card.set_caption(data.get("baseline_caption", ""))
@@ -3014,10 +3085,10 @@ class QuantumViTGUI(QMainWindow):
             QMainWindow { background-color: #eef4ff; color: #173059; }
             #sidebar { background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0a1a4d, stop: 1 #08163b); border-right: 1px solid rgba(130, 176, 255, 0.10); }
             #brandBlock { background-color: transparent; }
-            #sideBadge { color: #ffbf59; background-color: rgba(255, 191, 89, 0.16); border: 1px solid rgba(255, 191, 89, 0.22); border-radius: 14px; padding: 6px 12px; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
-            #brandLogo { color: #f8fbff; background-color: rgba(76, 142, 255, 0.18); border: 1px solid rgba(149, 195, 255, 0.28); border-radius: 16px; font-size: 26px; font-weight: 900; }
-            #brandTitle { color: #f8fbff; font-size: 28px; font-weight: 900; letter-spacing: 0px; }
-            #brandSubtitle { color: rgba(215, 229, 255, 0.82); font-size: 13px; line-height: 1.6; }
+            #sideBadge { color: #ffbf59; background-color: rgba(255, 191, 89, 0.16); border: 1px solid rgba(255, 191, 89, 0.22); border-radius: 14px; padding: 6px 12px; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+            #brandLogo { color: #f8fbff; background-color: rgba(76, 142, 255, 0.18); border: 1px solid rgba(149, 195, 255, 0.28); border-radius: 16px; font-size: 24px; font-weight: 900; }
+            #brandTitle { color: #f8fbff; font-size: 26px; font-weight: 900; letter-spacing: 0px; }
+            #brandSubtitle { color: rgba(215, 229, 255, 0.82); font-size: 12px; line-height: 1.55; }
             #divider { color: rgba(179, 205, 255, 0.16); }
             #navSectionLabel { color: rgba(198, 220, 255, 0.72); font-size: 12px; font-weight: 700; letter-spacing: 1px; }
             #navButton { min-height: 54px; text-align: left; padding: 12px 18px; border-radius: 16px; border: 1px solid transparent; background-color: rgba(255, 255, 255, 0.03); color: #eef4ff; font-size: 15px; font-weight: 700; }
