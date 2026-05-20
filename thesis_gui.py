@@ -3,9 +3,11 @@ QPE-HViT 毕设可视化展示系统主界面。
 """
 from collections import deque
 from functools import partial
+import importlib.util
 import json
 import math
 from pathlib import Path
+import pickle
 import sys
 
 try:
@@ -284,6 +286,34 @@ else:
     GestureCNN = None
 
 
+if torch is not None:
+    class EndToEndGestureCNN(nn.Module):
+        def __init__(self, num_classes=10):
+            super().__init__()
+            self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(32)
+            self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(64)
+            self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+            self.bn3 = nn.BatchNorm2d(128)
+            self.pool = nn.MaxPool2d(2, 2)
+            self.dropout = nn.Dropout(0.25)
+            self.fc1 = nn.Linear(128 * 16 * 16, 256)
+            self.fc2 = nn.Linear(256, num_classes)
+
+        def forward(self, x):
+            x = self.pool(torch.relu(self.bn1(self.conv1(x))))
+            x = self.pool(torch.relu(self.bn2(self.conv2(x))))
+            x = self.pool(torch.relu(self.bn3(self.conv3(x))))
+            x = x.view(x.size(0), -1)
+            x = self.dropout(x)
+            x = torch.relu(self.fc1(x))
+            x = self.dropout(x)
+            return self.fc2(x)
+else:
+    EndToEndGestureCNN = None
+
+
 class OpenCVGestureRecognition:
     def __init__(self):
         self.history = deque(maxlen=10)
@@ -350,6 +380,15 @@ class OpenCVGestureRecognition:
         return result, mask
 
 
+GESTURE_MODEL_CNN = "Gesture CNN（已训练）"
+GESTURE_MODEL_OPENCV = "OpenCV 规则演示"
+GESTURE_MODEL_SVM = "MediaPipe + HOG + SVM"
+GESTURE_MODEL_RF = "MediaPipe + HOG + 随机森林"
+GESTURE_MODEL_END2END = "深度学习单步分类（End-to-End CNN）"
+GESTURE_MODEL_YOLO = "YOLOv8 手势检测"
+GESTURE_MODEL_QPE = "QPE_HViT"
+
+
 class QuantumViTGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -375,6 +414,9 @@ class QuantumViTGUI(QMainWindow):
         self.gesture_frame_counter = 0
         self.gesture_model = None
         self.gesture_model_path = Path(__file__).resolve().parent / "gesture_digit_cnn.pt"
+        self.gesture_assets_root = Path(__file__).resolve().parent / "gesture_recognition"
+        self.gesture_runtime_models = {}
+        self.gesture_runtime_helpers = {}
         self.gesture_model_input_size = 64
         self.gesture_model_classes = [str(index) for index in range(10)]
         self.gesture_prediction_history = deque(maxlen=3)
@@ -1672,6 +1714,8 @@ class QuantumViTGUI(QMainWindow):
         )
         self.gesture_model_box.currentTextChanged.connect(self.clear_gesture_prediction_history)
         header_layout.addWidget(self.gesture_model_box)
+        self.gesture_model_box.currentTextChanged.connect(self.on_gesture_model_changed)
+        self.configure_gesture_model_box()
 
         input_label = QLabel("推理输入")
         input_label.setObjectName("metricLabel")
@@ -2679,6 +2723,213 @@ class QuantumViTGUI(QMainWindow):
         )
         return path
 
+    def configure_gesture_model_box(self):
+        if not hasattr(self, "gesture_model_box"):
+            return
+        current_text = self.gesture_model_box.currentText()
+        model_items = [
+            GESTURE_MODEL_CNN,
+            GESTURE_MODEL_OPENCV,
+            GESTURE_MODEL_SVM,
+            GESTURE_MODEL_RF,
+            GESTURE_MODEL_END2END,
+            GESTURE_MODEL_YOLO,
+            GESTURE_MODEL_QPE,
+        ]
+        self.gesture_model_box.blockSignals(True)
+        self.gesture_model_box.clear()
+        self.gesture_model_box.addItems(model_items)
+        if current_text in model_items:
+            self.gesture_model_box.setCurrentText(current_text)
+        else:
+            self.gesture_model_box.setCurrentText(GESTURE_MODEL_CNN)
+        self.gesture_model_box.blockSignals(False)
+
+    def on_gesture_model_changed(self):
+        model_name = self.gesture_model_box.currentText()
+        input_enabled = model_name == GESTURE_MODEL_CNN
+        if hasattr(self, "gesture_input_mode_box"):
+            self.gesture_input_mode_box.setEnabled(input_enabled)
+        if hasattr(self, "gesture_model_input_title"):
+            if model_name == GESTURE_MODEL_OPENCV:
+                self.gesture_model_input_title.setText("模型输入预览：OpenCV Skin Mask")
+            elif model_name == GESTURE_MODEL_YOLO:
+                self.gesture_model_input_title.setText("模型输入预览：YOLO 检测画面")
+            elif model_name in {GESTURE_MODEL_SVM, GESTURE_MODEL_RF, GESTURE_MODEL_END2END, GESTURE_MODEL_QPE}:
+                self.gesture_model_input_title.setText("模型输入预览：MediaPipe 手部 ROI")
+            else:
+                self.gesture_model_input_title.setText(f"模型输入预览：{self.gesture_input_mode_box.currentText()}")
+        if self.latest_camera_frame is not None:
+            self.show_gesture_model_input_frame(self.latest_camera_frame)
+
+    def ensure_mediapipe_hands(self):
+        cached = self.gesture_runtime_helpers.get("mediapipe_hands")
+        if cached is not None:
+            return cached, ""
+        try:
+            import mediapipe as mp  # type: ignore
+        except Exception as exc:
+            return None, f"未检测到 MediaPipe：{exc}"
+        hands = mp.solutions.hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+        cached = (mp, hands)
+        self.gesture_runtime_helpers["mediapipe_hands"] = cached
+        return cached, ""
+
+    def extract_hand_roi_with_mediapipe(self, frame, margin=30, fallback_to_center=False):
+        runtime, error = self.ensure_mediapipe_hands()
+        if runtime is None:
+            if fallback_to_center:
+                x1, y1, x2, y2 = self.get_gesture_roi(frame)
+                roi = frame[y1:y2, x1:x2]
+                return (roi.copy() if roi.size else None), (x1, y1, x2, y2), error
+            return None, None, error
+
+        mp, hands = runtime
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        result = hands.process(rgb)
+        if not result.multi_hand_landmarks:
+            if fallback_to_center:
+                x1, y1, x2, y2 = self.get_gesture_roi(frame)
+                roi = frame[y1:y2, x1:x2]
+                return (roi.copy() if roi.size else None), (x1, y1, x2, y2), "MediaPipe 未检测到手部，已回退到中央 ROI。"
+            return None, None, "MediaPipe 未检测到手部关键点。"
+
+        h, w, _ = frame.shape
+        hand_landmarks = result.multi_hand_landmarks[0]
+        xs = [lm.x * w for lm in hand_landmarks.landmark]
+        ys = [lm.y * h for lm in hand_landmarks.landmark]
+        x_min = max(0, int(min(xs)) - margin)
+        y_min = max(0, int(min(ys)) - margin)
+        x_max = min(w, int(max(xs)) + margin)
+        y_max = min(h, int(max(ys)) + margin)
+        roi = frame[y_min:y_max, x_min:x_max]
+        if roi.size == 0:
+            return None, None, "MediaPipe 已定位手部，但 ROI 为空。"
+        return roi.copy(), (x_min, y_min, x_max, y_max), ""
+
+    def pad_color_image_square(self, image, fill_value=(0, 0, 0)):
+        if image is None or image.size == 0:
+            return None
+        height, width = image.shape[:2]
+        if height == width:
+            return image
+        side = max(height, width)
+        pad_top = (side - height) // 2
+        pad_bottom = side - height - pad_top
+        pad_left = (side - width) // 2
+        pad_right = side - width - pad_left
+        return cv2.copyMakeBorder(
+            image,
+            pad_top,
+            pad_bottom,
+            pad_left,
+            pad_right,
+            cv2.BORDER_CONSTANT,
+            value=fill_value,
+        )
+
+    def resolve_yolo_weights_path(self):
+        yolo_root = self.gesture_assets_root / "深度学习目标检测 (YOLO)"
+        candidates = sorted(
+            yolo_root.glob("runs/**/weights/best.pt"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
+    def ensure_gesture_runtime_model(self, model_name):
+        if model_name == GESTURE_MODEL_CNN:
+            if self.gesture_model is None:
+                return None, "真实 CNN 模型尚未加载。"
+            return self.gesture_model, ""
+        if model_name == GESTURE_MODEL_OPENCV:
+            if self.opencv_gesture_recognizer is None:
+                return None, "OpenCV / NumPy 不可用。"
+            return self.opencv_gesture_recognizer, ""
+        cached = self.gesture_runtime_models.get(model_name)
+        if cached is not None:
+            return cached, ""
+
+        try:
+            if model_name in {GESTURE_MODEL_SVM, GESTURE_MODEL_RF}:
+                model_file = self.gesture_assets_root / "MediaPipe + HOG + SVM" / "随机森林" / (
+                    "svm_gesture_model.pkl" if model_name == GESTURE_MODEL_SVM else "rf_gesture_model.pkl"
+                )
+                if not model_file.exists():
+                    return None, f"未找到模型文件：{model_file.name}"
+                try:
+                    from skimage.feature import hog as skimage_hog  # type: ignore
+                except Exception as exc:
+                    return None, f"未检测到 skimage，无法运行 HOG 模型：{exc}"
+                with model_file.open("rb") as handle:
+                    runtime = {
+                        "model": pickle.load(handle),
+                        "hog": skimage_hog,
+                        "path": model_file,
+                    }
+                self.gesture_runtime_models[model_name] = runtime
+                return runtime, ""
+
+            if model_name == GESTURE_MODEL_END2END:
+                if torch is None or EndToEndGestureCNN is None:
+                    return None, "未检测到 PyTorch，无法运行 End-to-End CNN。"
+                model_file = self.gesture_assets_root / "深度学习单步分类（End-to-End CNN）" / "best_gesture_cnn.pth"
+                if not model_file.exists():
+                    return None, f"未找到模型文件：{model_file.name}"
+                model = EndToEndGestureCNN(num_classes=10)
+                state_dict = torch.load(model_file, map_location="cpu")
+                model.load_state_dict(state_dict)
+                model.eval()
+                runtime = {"model": model, "path": model_file}
+                self.gesture_runtime_models[model_name] = runtime
+                return runtime, ""
+
+            if model_name == GESTURE_MODEL_YOLO:
+                weights_path = self.resolve_yolo_weights_path()
+                if weights_path is None:
+                    return None, "未找到 YOLO best.pt 权重文件。"
+                try:
+                    from ultralytics import YOLO  # type: ignore
+                except Exception as exc:
+                    return None, f"未检测到 ultralytics，无法运行 YOLO：{exc}"
+                runtime = {"model": YOLO(str(weights_path)), "path": weights_path}
+                self.gesture_runtime_models[model_name] = runtime
+                return runtime, ""
+
+            if model_name == GESTURE_MODEL_QPE:
+                if torch is None:
+                    return None, "未检测到 PyTorch，无法运行 QPE_HViT。"
+                qpe_root = self.gesture_assets_root / "深度学习目标检测 (YOLO)" / "九、QPE_HViT手势数字识别"
+                checkpoint_path = qpe_root / "best_qpe_hvit.pth"
+                if not checkpoint_path.exists():
+                    return None, "未找到 QPE_HViT 权重文件 best_qpe_hvit.pth。"
+                wrapper_path = qpe_root / "qpe_hvit_model.py"
+                if not wrapper_path.exists():
+                    return None, "未找到 QPE_HViT 模型定义文件。"
+                sys.path.insert(0, str(qpe_root))
+                spec = importlib.util.spec_from_file_location("gesture_qpe_hvit_runtime", wrapper_path)
+                if spec is None or spec.loader is None:
+                    return None, "QPE_HViT 模块加载失败。"
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                model = module.QPE_HViT(num_classes=10)
+                model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+                model.eval()
+                if hasattr(model, "enable_realtime_optimization"):
+                    model.enable_realtime_optimization()
+                runtime = {"model": model, "path": checkpoint_path}
+                self.gesture_runtime_models[model_name] = runtime
+                return runtime, ""
+        except Exception as exc:
+            return None, f"{model_name} 加载失败：{exc}"
+
+        return None, f"不支持的模型：{model_name}"
+
     def clear_gesture_prediction_history(self):
         self.gesture_prediction_history.clear()
         if self.opencv_gesture_recognizer is not None:
@@ -2689,7 +2940,7 @@ class QuantumViTGUI(QMainWindow):
         if hasattr(self, "gesture_model_input_title"):
             self.gesture_model_input_title.setText(f"模型输入预览：{self.gesture_input_mode_box.currentText()}")
         if self.latest_camera_frame is not None:
-            self.show_model_input_frame(self.latest_camera_frame)
+            self.show_gesture_model_input_frame(self.latest_camera_frame)
 
     def choose_gesture_image_for_prediction(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -2725,7 +2976,7 @@ class QuantumViTGUI(QMainWindow):
     def predict_selected_gesture_image(self, image, image_name):
         self.clear_gesture_prediction_history()
         model_name = self.gesture_model_box.currentText()
-        digit, confidence, topk, message = self.predict_gesture_digit(image, model_name)
+        digit, confidence, topk, message = self.run_gesture_prediction(image, model_name)
         self.gesture_digit_label.setText(str(digit) if digit is not None else "--")
         self.gesture_confidence_label.setText(f"置信度：{confidence:.1f}%" if digit is not None else "置信度：--")
         self.gesture_topk_label.setText(
@@ -2734,7 +2985,7 @@ class QuantumViTGUI(QMainWindow):
             else "Top-3：等待识别"
         )
         self.gesture_status_label.setText(f"图片 {image_name} 识别完成。{message}")
-        self.show_model_input_frame(image)
+        self.show_gesture_model_input_frame(image)
         self.statusBar().showMessage(f"图片识别结果：{self.gesture_digit_label.text()}")
 
     def read_image_with_unicode_path(self, path):
@@ -2785,6 +3036,9 @@ class QuantumViTGUI(QMainWindow):
             self.gesture_model = None
             self.gesture_model_box.setCurrentText("OpenCV 规则演示")
             self.gesture_status_label.setText(f"模型加载失败：{exc}。已切换为 OpenCV 规则演示。")
+
+        self.gesture_model_box.setCurrentIndex(0 if self.gesture_model is not None else 1)
+        self.on_gesture_model_changed()
 
     def start_gesture_camera(self):
         if cv2 is None:
@@ -2861,7 +3115,7 @@ class QuantumViTGUI(QMainWindow):
             )
 
         self.show_camera_frame(display_frame)
-        self.show_model_input_frame(frame)
+        self.show_gesture_model_input_frame(frame)
         if self.gesture_frame_counter % 5 == 0:
             self.recognize_current_gesture(silent=True)
 
@@ -2872,7 +3126,7 @@ class QuantumViTGUI(QMainWindow):
             return
 
         model_name = self.gesture_model_box.currentText()
-        digit, confidence, topk, message = self.predict_gesture_digit(self.latest_camera_frame, model_name)
+        digit, confidence, topk, message = self.run_gesture_prediction(self.latest_camera_frame, model_name)
         self.gesture_digit_label.setText(str(digit) if digit is not None else "--")
         self.gesture_confidence_label.setText(f"置信度：{confidence:.1f}%" if digit is not None else "置信度：--")
         self.gesture_topk_label.setText(
@@ -2945,6 +3199,53 @@ class QuantumViTGUI(QMainWindow):
         self.gesture_camera_view.setText("")
         self.gesture_camera_view.setPixmap(pixmap)
 
+    def show_gesture_model_input_frame(self, frame):
+        model_name = self.gesture_model_box.currentText()
+        if model_name == GESTURE_MODEL_OPENCV and self.opencv_gesture_recognizer is not None:
+            x1, y1, x2, y2 = self.get_gesture_roi(frame)
+            roi = frame[y1:y2, x1:x2]
+            if roi.size == 0:
+                self.gesture_model_input_view.setPixmap(QPixmap())
+                self.gesture_model_input_view.setText("无有效输入")
+                return
+            model_input = self.opencv_gesture_recognizer.build_skin_mask(roi)
+            if hasattr(self, "gesture_model_input_title"):
+                self.gesture_model_input_title.setText("模型输入预览：OpenCV Skin Mask")
+        elif model_name == GESTURE_MODEL_YOLO:
+            model_input = frame.copy()
+            if hasattr(self, "gesture_model_input_title"):
+                self.gesture_model_input_title.setText("模型输入预览：YOLO 检测画面")
+        elif model_name in {GESTURE_MODEL_SVM, GESTURE_MODEL_RF, GESTURE_MODEL_END2END, GESTURE_MODEL_QPE}:
+            model_input, _, _ = self.extract_hand_roi_with_mediapipe(frame, fallback_to_center=True)
+            if hasattr(self, "gesture_model_input_title"):
+                self.gesture_model_input_title.setText("模型输入预览：MediaPipe 手部 ROI")
+        else:
+            model_input = self.build_gesture_model_input(frame)
+            if hasattr(self, "gesture_model_input_title"):
+                self.gesture_model_input_title.setText(f"模型输入预览：{self.gesture_input_mode_box.currentText()}")
+
+        if model_input is None:
+            self.gesture_model_input_view.setPixmap(QPixmap())
+            self.gesture_model_input_view.setText("无有效输入")
+            return
+
+        border_value = 24 if model_input.ndim == 2 else (24, 24, 24)
+        bordered = cv2.copyMakeBorder(model_input, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=border_value)
+        if bordered.ndim == 2:
+            height, width = bordered.shape
+            qimage = QImage(bordered.data, width, height, width, QImage.Format_Grayscale8).copy()
+        else:
+            rgb = cv2.cvtColor(bordered, cv2.COLOR_BGR2RGB)
+            height, width, channels = rgb.shape
+            qimage = QImage(rgb.data, width, height, width * channels, QImage.Format_RGB888).copy()
+        pixmap = QPixmap.fromImage(qimage).scaled(
+            self.gesture_model_input_view.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self.gesture_model_input_view.setText("")
+        self.gesture_model_input_view.setPixmap(pixmap)
+
     def show_model_input_frame(self, frame):
         if self.gesture_model_box.currentText() == "OpenCV 规则演示" and self.opencv_gesture_recognizer is not None:
             x1, y1, x2, y2 = self.get_gesture_roi(frame)
@@ -2990,6 +3291,123 @@ class QuantumViTGUI(QMainWindow):
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
         return mask
+
+    def run_gesture_prediction(self, frame, model_name):
+        if model_name == GESTURE_MODEL_CNN:
+            runtime, message = self.ensure_gesture_runtime_model(model_name)
+            if runtime is None:
+                return None, 0.0, [], message
+            return self.predict_gesture_digit_with_cnn(frame)
+
+        if model_name == GESTURE_MODEL_OPENCV:
+            return self.predict_gesture_digit(frame, model_name)
+
+        if model_name in {GESTURE_MODEL_SVM, GESTURE_MODEL_RF}:
+            return self.predict_gesture_digit_with_hog_classifier(frame, model_name)
+
+        if model_name == GESTURE_MODEL_END2END:
+            return self.predict_gesture_digit_with_end_to_end_cnn(frame)
+
+        if model_name == GESTURE_MODEL_YOLO:
+            return self.predict_gesture_digit_with_yolo(frame)
+
+        if model_name == GESTURE_MODEL_QPE:
+            return self.predict_gesture_digit_with_qpe_hvit(frame)
+
+        return None, 0.0, [], f"未识别的模型选项：{model_name}"
+
+    def predict_gesture_digit_with_hog_classifier(self, frame, model_name):
+        runtime, message = self.ensure_gesture_runtime_model(model_name)
+        if runtime is None:
+            return None, 0.0, [], message
+        roi, _, roi_message = self.extract_hand_roi_with_mediapipe(frame, fallback_to_center=False)
+        if roi is None:
+            return None, 0.0, [], roi_message
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        resized = cv2.resize(gray, (128, 128), interpolation=cv2.INTER_AREA)
+        features = runtime["hog"](
+            resized,
+            orientations=9,
+            pixels_per_cell=(8, 8),
+            cells_per_block=(2, 2),
+            block_norm="L2-Hys",
+            visualize=False,
+        ).reshape(1, -1)
+        model = runtime["model"]
+        prediction = model.predict(features)[0]
+        if hasattr(model, "predict_proba"):
+            probabilities = model.predict_proba(features)[0]
+            ranked_indices = np.argsort(probabilities)[::-1][:3]
+            topk = [(str(index), float(probabilities[index]) * 100.0) for index in ranked_indices]
+        else:
+            topk = [(str(prediction), 100.0)]
+        best_digit = str(prediction)
+        confidence = topk[0][1] if topk else 0.0
+        classifier_name = "SVM" if model_name == GESTURE_MODEL_SVM else "随机森林"
+        return best_digit, confidence, topk, f"{classifier_name} 模型推理完成：{runtime['path'].name}。"
+
+    def predict_gesture_digit_with_end_to_end_cnn(self, frame):
+        runtime, message = self.ensure_gesture_runtime_model(GESTURE_MODEL_END2END)
+        if runtime is None:
+            return None, 0.0, [], message
+        roi, _, roi_message = self.extract_hand_roi_with_mediapipe(frame, fallback_to_center=False)
+        if roi is None:
+            return None, 0.0, [], roi_message
+        square = self.pad_color_image_square(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+        resized = cv2.resize(square, (128, 128), interpolation=cv2.INTER_AREA).astype("float32") / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        normalized = (resized - mean) / std
+        tensor = torch.from_numpy(np.transpose(normalized, (2, 0, 1))).unsqueeze(0)
+        model = runtime["model"]
+        with torch.inference_mode():
+            probabilities = torch.softmax(model(tensor), dim=1)[0]
+            values, indices = torch.topk(probabilities, k=min(3, probabilities.numel()))
+        topk = [(str(index), float(value) * 100.0) for value, index in zip(values.tolist(), indices.tolist())]
+        best_digit = topk[0][0] if topk else None
+        confidence = topk[0][1] if topk else 0.0
+        return best_digit, confidence, topk, f"End-to-End CNN 推理完成：{runtime['path'].name}。"
+
+    def predict_gesture_digit_with_yolo(self, frame):
+        runtime, message = self.ensure_gesture_runtime_model(GESTURE_MODEL_YOLO)
+        if runtime is None:
+            return None, 0.0, [], message
+        results = runtime["model"].predict(frame, conf=0.25, verbose=False)
+        if not results:
+            return None, 0.0, [], "YOLO 未返回任何检测结果。"
+        boxes = results[0].boxes
+        if boxes is None or boxes.cls is None or len(boxes.cls) == 0:
+            return None, 0.0, [], "YOLO 未检测到手势目标。"
+        names = results[0].names
+        confidences = boxes.conf.detach().cpu().tolist()
+        classes = boxes.cls.detach().cpu().tolist()
+        ranked = sorted(zip(confidences, classes), key=lambda item: item[0], reverse=True)[:3]
+        topk = [(str(names.get(int(cls_id), int(cls_id))), float(conf) * 100.0) for conf, cls_id in ranked]
+        best_digit = topk[0][0] if topk else None
+        confidence = topk[0][1] if topk else 0.0
+        return best_digit, confidence, topk, f"YOLO 检测完成：{runtime['path'].name}。检测框数量 {len(confidences)}。"
+
+    def predict_gesture_digit_with_qpe_hvit(self, frame):
+        runtime, message = self.ensure_gesture_runtime_model(GESTURE_MODEL_QPE)
+        if runtime is None:
+            return None, 0.0, [], message
+        roi, _, roi_message = self.extract_hand_roi_with_mediapipe(frame, fallback_to_center=True)
+        if roi is None:
+            return None, 0.0, [], roi_message
+        square = self.pad_color_image_square(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+        resized = cv2.resize(square, (224, 224), interpolation=cv2.INTER_AREA).astype("float32") / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        normalized = (resized - mean) / std
+        tensor = torch.from_numpy(np.transpose(normalized, (2, 0, 1))).unsqueeze(0)
+        model = runtime["model"]
+        with torch.inference_mode():
+            probabilities = torch.softmax(model(tensor), dim=1)[0]
+            values, indices = torch.topk(probabilities, k=min(3, probabilities.numel()))
+        topk = [(str(index), float(value) * 100.0) for value, index in zip(values.tolist(), indices.tolist())]
+        best_digit = topk[0][0] if topk else None
+        confidence = topk[0][1] if topk else 0.0
+        return best_digit, confidence, topk, f"QPE_HViT 推理完成：{runtime['path'].name}。"
 
     def predict_gesture_digit(self, frame, model_name):
         if model_name == "Gesture CNN（已训练）":
@@ -3105,6 +3523,10 @@ class QuantumViTGUI(QMainWindow):
 
     def closeEvent(self, event):
         self.stop_gesture_camera()
+        runtime = self.gesture_runtime_helpers.get("mediapipe_hands")
+        if runtime is not None:
+            _, hands = runtime
+            hands.close()
         super().closeEvent(event)
 
     def apply_stylesheet(self):
