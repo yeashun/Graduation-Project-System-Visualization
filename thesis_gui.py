@@ -626,20 +626,25 @@ class QuantumViTGUI(QMainWindow):
         )
         project_brief.setObjectName("homeProjectBrief")
         project_brief.setWordWrap(True)
-        project_brief.setAlignment(Qt.AlignCenter)
+        project_brief.setTextFormat(Qt.RichText)
+        project_brief.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        project_brief.setText(
+            "<div>"
+            "<div style='font-size:15px; font-weight:800; color:#173059; margin-bottom:8px;'>项目简介</div>"
+            "<div style='margin-bottom:8px;'><b>研究背景：</b>传统视觉 Transformer 虽具备较强的全局建模能力，但在复杂背景、多尺度目标与细粒度场景下，仍存在位置表达不足与特征融合受限的问题。</div>"
+            "<div style='margin-bottom:8px;'><b>核心思路：</b>本文提出量子增强层次化视觉 Transformer 模型 QPE-HViT，在 HViT 主干中引入量子位置编码模块（QPE）与量子引导跨尺度注意力机制（QCSA），提升空间建模与多尺度融合能力。</div>"
+            "<div style='margin-bottom:8px;'><b>实验验证：</b>模型在 CIFAR-10、CIFAR-100 与 ImageNet-1K 等公开数据集上完成对比实验，并与 ResNet、ViT、Swin Transformer 等主流模型进行系统评估。</div>"
+            "<div><b>结果结论：</b>QPE-HViT 在 CIFAR-100 上取得 75.49% 的分类准确率，相关结果表明量子增强机制在视觉空间建模与细粒度识别任务中具有良好有效性与可行性。</div>"
+            "</div>"
+        )
         hero_text_layout.addWidget(project_brief)
 
-        hero_meta = QHBoxLayout()
-        hero_meta.setSpacing(10)
-        hero_meta.addStretch()
         self.home_hero_meta_labels = []
         for _ in range(3):
             label = QLabel()
             label.setObjectName("heroMetaPill")
-            hero_meta.addWidget(label, 0, Qt.AlignCenter)
+            label.hide()
             self.home_hero_meta_labels.append(label)
-        hero_meta.addStretch()
-        hero_text_layout.addLayout(hero_meta)
         hero_layout.addWidget(hero_text, 1)
 
         hero_visual = QFrame()
@@ -746,6 +751,7 @@ class QuantumViTGUI(QMainWindow):
         section = QLabel("模块导航")
         section.setObjectName("pageTitle")
         layout.addWidget(section)
+        section.hide()
 
         cards_layout = QGridLayout()
         cards_layout.setHorizontalSpacing(16)
@@ -756,6 +762,7 @@ class QuantumViTGUI(QMainWindow):
             tone = module_tones[index % len(module_tones)]
             card = QFrame()
             card.setObjectName("homeModuleCard")
+            card.hide()
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(22, 22, 22, 22)
             card_layout.setSpacing(12)
@@ -805,7 +812,7 @@ class QuantumViTGUI(QMainWindow):
 
         footer_left = QLabel("QPE-HViT 可视化系统")
         footer_left.setObjectName("homeFooterText")
-        footer_mid = QLabel("2024 毕业设计演示系统  |  仅供学术交流使用")
+        footer_mid = QLabel("2026 毕业设计演示系统  |  仅供学术交流使用")
         footer_mid.setObjectName("homeFooterText")
         footer_right = QLabel("希望本系统能为你的答辩与展示助力")
         footer_right.setObjectName("homeFooterText")
@@ -2078,23 +2085,32 @@ class QuantumViTGUI(QMainWindow):
         card_name, icon_name = metric_styles[index % len(metric_styles)]
         card.setObjectName(card_name)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(9)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
 
         top_row = QHBoxLayout()
-        top_row.setSpacing(12)
+        top_row.setSpacing(14)
 
         icon = QLabel()
         icon.setObjectName(icon_name)
         icon.setAlignment(Qt.AlignCenter)
-        icon.setFixedSize(48, 48)
+        icon.setFixedSize(52, 52)
+
+        kicker = QLabel("HOME METRIC")
+        kicker.setObjectName("homeMetricKicker")
+        kicker.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         title = QLabel("指标")
         title.setObjectName("homeMetricTitle")
         title.setWordWrap(True)
 
         top_row.addWidget(icon, 0, Qt.AlignTop)
-        top_row.addWidget(title, 1, Qt.AlignVCenter)
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(3)
+        title_box.addWidget(kicker)
+        title_box.addWidget(title)
+        top_row.addLayout(title_box, 1)
         layout.addLayout(top_row)
 
         value = QLabel("--")
@@ -2102,19 +2118,31 @@ class QuantumViTGUI(QMainWindow):
         value.setWordWrap(True)
         layout.addWidget(value)
 
+        divider = QFrame()
+        divider.setObjectName("homeMetricDivider")
+        divider.setFixedHeight(1)
+        layout.addWidget(divider)
+
         caption = QLabel("")
         caption.setObjectName("homeMetricCaption")
         caption.setWordWrap(True)
         layout.addWidget(caption)
-        return {"card": card, "icon": icon, "title": title, "value": value, "caption": caption}
+        return {"card": card, "icon": icon, "kicker": kicker, "title": title, "value": value, "caption": caption}
 
     def set_metric_card(self, metric, title, value, caption):
         metric["title"].setText(title)
         metric["value"].setText(value)
         metric["caption"].setText(caption)
 
-    def set_home_metric_card(self, metric, icon_text, title, value, caption):
+    def set_home_metric_card(self, metric, icon_text, title, value, caption, kicker="HOME METRIC"):
+        kicker_map = {
+            "UI": "SYSTEM OVERVIEW",
+            "DS": "DATA COVERAGE",
+            "ML": "MODEL BENCHMARK",
+            "VIS": "VISUAL ANALYSIS",
+        }
         metric["icon"].setText(icon_text)
+        metric["kicker"].setText(kicker_map.get(icon_text, kicker))
         metric["title"].setText(title)
         metric["value"].setText(value)
         metric["caption"].setText(caption)
@@ -3103,7 +3131,7 @@ class QuantumViTGUI(QMainWindow):
             #homeHeroKicker { color: #3677e9; font-size: 11px; font-weight: 900; letter-spacing: 2px; }
             #homeHeroTitle { color: #142746; font-size: 35px; font-weight: 900; line-height: 1.18; }
             #homeHeroSubtitle { color: #60728b; font-size: 14px; line-height: 1.8; font-weight: 700; }
-            #homeProjectBrief { color: #4f6684; background-color: rgba(255, 255, 255, 0.62); border: 1px solid rgba(214, 225, 243, 0.82); border-radius: 14px; padding: 10px 12px; font-size: 12px; line-height: 1.7; font-weight: 700; }
+            #homeProjectBrief { color: #4f6684; background-color: rgba(255, 255, 255, 0.7); border: 1px solid rgba(214, 225, 243, 0.9); border-radius: 16px; padding: 16px 18px; font-size: 13px; line-height: 1.9; font-weight: 600; }
             #heroMetaPill { color: #3f5f91; background-color: rgba(73, 128, 238, 0.08); border: 1px solid rgba(73, 128, 238, 0.14); border-radius: 13px; padding: 7px 11px; font-size: 12px; font-weight: 800; }
             #homeVisualTag { color: #8a9bb1; font-size: 11px; font-weight: 900; letter-spacing: 1px; }
             #homeVisualStack { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #ffffff, stop: 1 #eef5ff); border: 1px solid rgba(204, 219, 244, 0.95); border-radius: 22px; min-width: 184px; }
@@ -3209,19 +3237,21 @@ class QuantumViTGUI(QMainWindow):
             #accentSoftCard { background-color: #f7fbff; border: 1px solid rgba(112, 160, 245, 0.42); }
             #imageCardAccent { border: 2px solid rgba(90, 142, 240, 0.58); }
             #metricCard { min-height: 136px; }
-            #homeMetricCardBlue, #homeMetricCardGreen, #homeMetricCardIndigo, #homeMetricCardAmber { min-height: 152px; }
-            #homeMetricCardBlue { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #ffffff, stop: 1 #f0f6ff); }
-            #homeMetricCardGreen { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #ffffff, stop: 1 #effbf5); }
-            #homeMetricCardIndigo { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #ffffff, stop: 1 #f3f2ff); }
-            #homeMetricCardAmber { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #ffffff, stop: 1 #fff6e9); }
-            #homeMetricIconBlue, #homeMetricIconGreen, #homeMetricIconIndigo, #homeMetricIconAmber { color: #ffffff; border-radius: 15px; font-size: 13px; font-weight: 900; }
-            #homeMetricIconBlue { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #5a9cff, stop: 1 #2f75f6); }
-            #homeMetricIconGreen { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #62cc95, stop: 1 #2fa873); }
-            #homeMetricIconIndigo { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #7b74f2, stop: 1 #5650cf); }
-            #homeMetricIconAmber { background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 #ffb64f, stop: 1 #f38a24); }
-            #homeMetricTitle, #metricLabel { color: #586b86; font-size: 14px; font-weight: 900; }
-            #homeMetricValue { color: #142b52; font-size: 30px; font-weight: 900; }
-            #homeMetricCaption, #metricCaption { color: #6f819a; font-size: 12px; line-height: 1.6; }
+            #homeMetricCardBlue, #homeMetricCardGreen, #homeMetricCardIndigo, #homeMetricCardAmber { min-height: 164px; background-color: rgba(255, 255, 255, 0.92); border: 1px solid rgba(205, 219, 238, 0.92); border-radius: 22px; }
+            #homeMetricCardBlue { border-top: 4px solid #2f75f6; }
+            #homeMetricCardGreen { border-top: 4px solid #4a87eb; }
+            #homeMetricCardIndigo { border-top: 4px solid #5a94ef; }
+            #homeMetricCardAmber { border-top: 4px solid #6aa0f2; }
+            #homeMetricIconBlue, #homeMetricIconGreen, #homeMetricIconIndigo, #homeMetricIconAmber { color: #1f4f9b; background-color: rgba(47, 117, 246, 0.10); border: 1px solid rgba(47, 117, 246, 0.12); border-radius: 16px; font-size: 13px; font-weight: 900; }
+            #homeMetricIconBlue { background-color: rgba(47, 117, 246, 0.11); }
+            #homeMetricIconGreen { background-color: rgba(47, 117, 246, 0.08); }
+            #homeMetricIconIndigo { background-color: rgba(47, 117, 246, 0.06); }
+            #homeMetricIconAmber { background-color: rgba(47, 117, 246, 0.09); }
+            #homeMetricKicker { color: #7b8ea8; font-size: 10px; font-weight: 900; letter-spacing: 1px; }
+            #homeMetricTitle, #metricLabel { color: #173059; font-size: 16px; font-weight: 900; }
+            #homeMetricValue { color: #11294b; font-size: 34px; font-weight: 900; }
+            #homeMetricDivider { background-color: rgba(201, 214, 232, 0.88); border: none; }
+            #homeMetricCaption, #metricCaption { color: #60738f; font-size: 12px; line-height: 1.75; font-weight: 700; }
             #valueLabel { color: #245dd8; font-size: 24px; font-weight: 800; }
             #sectionCardTitle { color: #173059; font-size: 20px; font-weight: 900; }
             #homeModuleTitle { color: #173059; font-size: 18px; font-weight: 900; }
