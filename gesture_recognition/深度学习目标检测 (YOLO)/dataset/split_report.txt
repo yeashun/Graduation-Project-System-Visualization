@@ -1,0 +1,17 @@
+源目录: D:\桌面\研0\毕业设计\可视化展示界面\gesture_recognition\深度学习目标检测 (YOLO)\dataset_raw_v2
+目标目录: D:\桌面\研0\毕业设计\可视化展示界面\gesture_recognition\深度学习目标检测 (YOLO)\dataset
+train=800
+val=100
+test=101
+
+按类别统计:
+类别 0: train=80, val=10, test=10
+类别 1: train=80, val=10, test=10
+类别 2: train=80, val=10, test=10
+类别 3: train=80, val=10, test=10
+类别 4: train=80, val=10, test=10
+类别 5: train=80, val=10, test=10
+类别 6: train=80, val=10, test=10
+类别 7: train=80, val=10, test=10
+类别 8: train=80, val=10, test=10
+类别 9: train=80, val=10, test=11

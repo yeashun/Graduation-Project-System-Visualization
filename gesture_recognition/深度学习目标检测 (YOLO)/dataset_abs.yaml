@@ -1,0 +1,16 @@
+path: D:/桌面/研0/毕业设计/可视化展示界面/gesture_recognition/深度学习目标检测 (YOLO)/dataset
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: "0"
+  1: "1"
+  2: "2"
+  3: "3"
+  4: "4"
+  5: "5"
+  6: "6"
+  7: "7"
+  8: "8"
+  9: "9"

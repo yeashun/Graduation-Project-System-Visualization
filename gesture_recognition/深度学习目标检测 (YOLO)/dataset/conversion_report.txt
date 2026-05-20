@@ -1,0 +1,7 @@
+源目录: D:\桌面\研0\毕业设计\可视化展示界面\gesture_recognition\深度学习单步分类（End-to-End CNN）\new_gesture_data
+输出目录: D:\桌面\研0\毕业设计\可视化展示界面\gesture_recognition\深度学习目标检测 (YOLO)\dataset
+框生成模式: auto
+成功转换: 1001
+检测失败: 0
+整图框回退次数: 1001
+失败样本目录: D:\桌面\研0\毕业设计\可视化展示界面\gesture_recognition\深度学习目标检测 (YOLO)\failed_samples
